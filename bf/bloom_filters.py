@@ -126,7 +126,7 @@ class ScalableBloomFilter:
         
         # Use the provided m as base size m0
         self.m0 = m
-        print(f"[SBF-init] n={n}, m0={m}, k={k}, P0={P0}, r={r}, s={s}")
+        # print(f"[SBF-init] n={n}, m0={m}, k={k}, P0={P0}, r={r}, s={s}")
 
         self.filters = []
         self.add_filter(0)
@@ -140,7 +140,6 @@ class ScalableBloomFilter:
         # m_i grows geometrically by s^i
         mi = int(self.m0 * (self.s ** i))
         ni = int((mi * (math.log(2) ** 2)) / abs(math.log(Pi)))  # capacity estimate
-        print(ni, mi, ki)
         self.filters.append(BloomFilter(ni, mi, ki))
 
     def _is_saturated(self, bf: BloomFilter):
@@ -166,16 +165,44 @@ class ScalableBloomFilter:
         return sum(bf.mem_bytes for bf in self.filters)
 
 
-class TimeDecayingBloomFilter(CountingBloomFilter):
-    def __init__(self, n, m, k, decay_rate=0.9):
-        super().__init__(n, m, k)
-        self.decay_rate = decay_rate
+# class TimeDecayingBloomFilter(CountingBloomFilter):
+#     def __init__(self, n, m, k, decay_rate=0.9):
+#         super().__init__(n, m, k)
+#         self.decay_rate = decay_rate
 
-    def decay(self):
-        """Apply decay to counters (simulate fading memory)."""
-        self.count_array = (self.count_array * self.decay_rate).astype(int)
+#     def decay(self):
+#         """Apply decay to counters (simulate fading memory)."""
+#         self.count_array = (self.count_array * self.decay_rate).astype(int)
+
+#     def insert(self, key, weight=1):
+#         for h in self.hashes:
+#             self.count_array[h(key)] += weight
+#         self.count += 1
+
+class TimeDecayingBloomFilter(CountingBloomFilter):
+    # I tuned the decay_factor and epoch a bit to balance the decay speed
+    def __init__(self, n, m, k, decay_factor=0.9, epoch=100):
+        super().__init__(n, m, k)
+        self.decay_factor = decay_factor # λ
+        self.epoch = epoch # T
+        self._insertions = 0 # count since last decay
 
     def insert(self, key, weight=1):
         for h in self.hashes:
             self.count_array[h(key)] += weight
         self.count += 1
+        self._insertions += 1
+
+        # decay after every epoch
+        if self._insertions >= self.epoch:
+            self.decay()
+            self._insertions = 0
+
+    def decay(self):
+        """Apply exponential decay to all counters."""
+        self.count_array = np.round(self.count_array * self.decay_factor).astype(int)
+        self.count_array[self.count_array < 1] = 0  # reset tiny decayed counts to 0
+
+    def estimate(self, key):
+        """Estimate frequency count after decay."""
+        return min(self.count_array[h(key)] for h in self.hashes)
