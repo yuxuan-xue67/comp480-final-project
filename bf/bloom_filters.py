@@ -45,6 +45,10 @@ class BloomFilter():
     # memory used by the bit buffer + python object overhead
     def mem_bytes(self):
         return sys.getsizeof(self.bit_array)
+    
+    @property
+    def fill_ratio(self):
+        return self.bit_array.count(True) / self.m
 
 
 class CountingBloomFilter(BloomFilter):
@@ -72,34 +76,90 @@ class CountingBloomFilter(BloomFilter):
         return self.count_array.nbytes
 
 
+# class ScalableBloomFilter:
+#     def __init__(self, n, m, k, growth_factor=2, saturation=0.5):
+#         """
+#         growth_factor: expansion ratio for each new filter
+#         saturation: threshold of filled bits before adding a new filter
+#         """
+#         self.n, self.m, self.k = n, m, k
+#         self.growth_factor = growth_factor
+#         self.saturation = saturation
+#         self.filters = [BloomFilter(n, m, k)]
+
+#     def _is_saturated(self, bf: BloomFilter):
+#         ones = bf.bit_array.count(True)
+#         return ones / bf.m > self.saturation
+
+#     def insert(self, key):
+#         bf = self.filters[-1]
+#         if self._is_saturated(bf):
+#             # create a new larger filter
+#             new_m = int(bf.m * self.growth_factor)
+#             new_n = int(bf.n * self.growth_factor)
+#             new_k = bf.k
+#             self.filters.append(BloomFilter(new_n, new_m, new_k))
+#             bf = self.filters[-1]
+#         bf.insert(key)
+
+#     def test(self, key):
+#         return any(bf.test(key) for bf in self.filters)
+
+#     @property
+#     def mem_bytes(self):
+#         return sum(bf.mem_bytes for bf in self.filters)
+
+# Optimal ScalableBloomFilter based on Almeida et al.
 class ScalableBloomFilter:
-    def __init__(self, n, m, k, growth_factor=2, saturation=0.5):
+    def __init__(self, n, m, k, P0=0.01, r=0.9, s=2, saturation=0.5):
         """
-        growth_factor: expansion ratio for each new filter
-        saturation: threshold of filled bits before adding a new filter
+        P0: base false positive rate
+        r: tightening ratio for error probability (0<r<1)
+        m0: initial bit size
+        s: growth factor for size of each new filter (2 or 4 recommended)
+        saturation: threshold of filled bits before new filter
         """
-        self.n, self.m, self.k = n, m, k
-        self.growth_factor = growth_factor
+        self.P0 = P0
+        self.r = r
+        self.s = s
         self.saturation = saturation
-        self.filters = [BloomFilter(n, m, k)]
+        
+        # Use the provided m as base size m0
+        self.m0 = m
+        print(f"[SBF-init] n={n}, m0={m}, k={k}, P0={P0}, r={r}, s={s}")
+
+        self.filters = []
+        self.add_filter(0)
+
+
+    def add_filter(self, i):
+        # P_i = P0 * r^i
+        Pi = self.P0 * (self.r ** i)
+        # optimal number of hashes
+        ki = math.ceil(math.log2(1 / Pi))
+        # m_i grows geometrically by s^i
+        mi = int(self.m0 * (self.s ** i))
+        ni = int((mi * (math.log(2) ** 2)) / abs(math.log(Pi)))  # capacity estimate
+        print(ni, mi, ki)
+        self.filters.append(BloomFilter(ni, mi, ki))
 
     def _is_saturated(self, bf: BloomFilter):
-        ones = bf.bit_array.count(True)
-        return ones / bf.m > self.saturation
+        return bf.fill_ratio > self.saturation
 
     def insert(self, key):
         bf = self.filters[-1]
         if self._is_saturated(bf):
-            # create a new larger filter
-            new_m = int(bf.m * self.growth_factor)
-            new_n = int(bf.n * self.growth_factor)
-            new_k = bf.k
-            self.filters.append(BloomFilter(new_n, new_m, new_k))
+            self.add_filter(len(self.filters))
             bf = self.filters[-1]
         bf.insert(key)
 
     def test(self, key):
         return any(bf.test(key) for bf in self.filters)
+
+    @property
+    def total_false_positive_bound(self):
+        # P_total ≤ P0 / (1 - r)
+        return self.P0 / (1 - self.r)
 
     @property
     def mem_bytes(self):
