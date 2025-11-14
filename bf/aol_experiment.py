@@ -86,8 +86,7 @@ def evaluate_filter(name, bf, insert_set, test_set_pos, test_set_neg, allow_dele
         "Insert Throughput (ops/s)": round(insert_tp, 2),
         "Query Throughput (ops/s)": round(query_tp, 2),
         "FPR": round(fpr, 6),
-        "FNR": round(fnr, 6),
-        "Deletion Stable?": deletion_success
+        "FNR": round(fnr, 6)
     }
     return results
 
@@ -170,8 +169,8 @@ plt.show()
 
 
 
-# When duplicates and deletion is enabled
-# Evaluate Counting BF or Time-Decaying BF under deletion.
+# When duplicates is enabled
+# 1. Evaluate Counting BF under deletion.
 def evaluate_deletion_effects(name, bf, membership, test_set_pos, test_set_neg, delete_ratios=[0.1, 0.3, 0.5], seed=42):
     print(f"\n[Deletion Evaluation] {name}")
 
@@ -241,10 +240,103 @@ df_delete = pd.DataFrame(delete_results)
 print(df_delete)
 
 
-sns.lineplot(data=df_delete, x="Delete Ratio", y="FPR", hue="Filter", marker="o")
-sns.lineplot(data=df_delete, x="Delete Ratio", y="FNR", hue="Filter", marker="o", linestyle="--")
+plt.figure(figsize=(8, 5))
+
+# FPR — solid line
+sns.lineplot(
+    data=df_delete,
+    x="Delete Ratio",
+    y="FPR",
+    label="FPR",
+    marker="o",
+    linestyle="-"
+)
+
+# FNR — dashed line
+sns.lineplot(
+    data=df_delete,
+    x="Delete Ratio",
+    y="FNR",
+    label="FNR",
+    marker="o",
+    linestyle="--"
+)
 
 plt.title("CountingBF Deletion Effects: FPR / FNR vs Delete Ratio")
+plt.ylabel("FPR / FNR")
+plt.xlabel("Delete Ratio")
+plt.legend()
 plt.show()
 
 
+# 2. Evaluate Time-Decaying BF under diferent params.
+def evaluate_tdbf_params(membership, test_set_pos, test_set_neg,n, m, k,
+                         decay_factors=(0.7, 0.3),
+                         epochs=([100, 500]), seed=42):
+    random.seed(seed)
+    results = []
+
+    for dfac in decay_factors:
+        for ep in epochs:
+            name = f"TDBF(df={dfac},T={ep})"
+            print(f"\n[Time-Decaying Evaluation] {name}")
+
+            tdbf = TimeDecayingBloomFilter(n, m, k,
+                                           decay_factor=dfac,
+                                           epoch=ep)
+
+            # 1. insertion throughput
+            insert_tp, _ = measure_throughput(tdbf.insert, membership)
+
+            # 2. query throughput
+            query_tp, _ = measure_throughput(tdbf.test,
+                                             test_set_pos + test_set_neg)
+
+            # 3. FPR / FNR after all insertions + decays
+            fpr, fnr = compute_fpr_fnr(tdbf, test_set_pos, test_set_neg)
+
+            # 4. memory
+            mem = tdbf.mem_bytes
+
+            results.append({
+                "Filter": "Time-Decaying",
+                "Decay Factor": dfac,
+                "Epoch": ep,
+                "Memory (bytes)": mem,
+                "Insert Throughput (ops/s)": insert_tp,
+                "Query Throughput (ops/s)": query_tp,
+                "FPR": fpr,
+                "FNR": fnr
+            })
+
+    return results
+
+
+# use repetition=True so duplicates exist for TDBF aging
+membership, test_pos, test_neg = prepare_dataset(path, test_size=1000, repetition=True)
+
+
+n = len(membership)
+m = n * 3
+k = 4
+
+tdbf_results = evaluate_tdbf_params(
+    membership,
+    test_pos,
+    test_neg,
+    n, m, k,
+    # decay_factors=[0.95, 0.9, 0.8],
+    # epochs=[50, 100, 200]
+)
+
+df_tdbf = pd.DataFrame(tdbf_results)
+print(df_tdbf)
+
+plt.figure(figsize=(9,6))
+sns.lineplot(data=df_tdbf,
+             x="Epoch",
+             y="FNR",
+             hue="Decay Factor",
+             marker="o")
+plt.title("TDBF FNR vs Epoch for different decay_factor")
+plt.show()
