@@ -6,10 +6,15 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Function for dataset preparation
-def prepare_dataset(path: str, test_size: int = 1000, seed: int = 42):
+def prepare_dataset(path: str, test_size: int = 1000, seed: int = 42, repetition: bool = False):
     # load dataset
     data = pd.read_csv(path, sep="\t")
-    urls = data.ClickURL.dropna().unique()
+    
+    if repetition:
+        urls = data.ClickURL.dropna()
+    else:
+        urls = data.ClickURL.dropna().unique()
+    
     membership = urls.tolist()
     N = len(membership)
     print(f"unique urls (membership size) N = {N}")
@@ -61,16 +66,16 @@ def evaluate_filter(name, bf, insert_set, test_set_pos, test_set_neg, allow_dele
     # 3. FPR and FNR
     fpr, fnr = compute_fpr_fnr(bf, test_set_pos, test_set_neg)
     
-    # 4. Deletion test (if supported)
-    deletion_success = None
-    if allow_delete and hasattr(bf, "remove"):
-        random.seed(42) 
-        to_delete = random.sample(insert_set, min(500, len(insert_set)))
-        for x in to_delete:
-            bf.remove(x)
-        # Check if deletions introduced false negatives
-        _, fnr_after = compute_fpr_fnr(bf, insert_set, test_set_neg)
-        deletion_success = fnr_after #< 0.05  # arbitrary threshold for sanity check
+    # # 4. Deletion test (if supported)
+    # deletion_success = None
+    # if allow_delete and hasattr(bf, "remove"):
+    #     random.seed(42) 
+    #     to_delete = random.sample(insert_set, min(500, len(insert_set)))
+    #     for x in to_delete:
+    #         bf.remove(x)
+    #     # Check if deletions introduced false negatives
+    #     _, fnr_after = compute_fpr_fnr(bf, insert_set, test_set_neg)
+    #     deletion_success = fnr_after #< 0.05  # arbitrary threshold for sanity check
     
     # 5. Memory
     mem = bf.mem_bytes
@@ -161,3 +166,85 @@ plt.xlabel("Memory (bytes)")
 plt.ylabel("False Positive Rate")
 plt.tight_layout()
 plt.show()
+
+
+
+
+# When duplicates and deletion is enabled
+# Evaluate Counting BF or Time-Decaying BF under deletion.
+def evaluate_deletion_effects(name, bf, membership, test_set_pos, test_set_neg, delete_ratios=[0.1, 0.3, 0.5], seed=42):
+    print(f"\n[Deletion Evaluation] {name}")
+
+    random.seed(seed)
+    n = len(membership)
+
+    # 1. Insert all elements
+    insert_tp, insert_time = measure_throughput(bf.insert, membership)
+
+    # 2. FPR/FNR before deletion
+    fpr_before, fnr_before = compute_fpr_fnr(bf, test_set_pos, test_set_neg)
+
+    results = []
+    results.append({
+        "Filter": name,
+        "Delete Ratio": 0.0,
+        "FPR": fpr_before,
+        "FNR": fnr_before,
+        "Insert Throughput": insert_tp,
+        "Memory (bytes)": bf.mem_bytes,
+    })
+
+    # 3. Perform deletion at different ratios
+    for ratio in delete_ratios:
+        delete_count = int(n * ratio)
+        to_delete = random.sample(membership, delete_count)
+
+        if hasattr(bf, "remove"):
+            print("remove")
+            # Counting Bloom Filter
+            for x in to_delete:
+                bf.remove(x)
+
+        # elif hasattr(bf, "decay"):
+        #     # Time-Decaying Bloom Filter: mimic deletion via decay
+        #     bf.decay()
+
+        # 4. FPR/FNR AFTER deletion
+        fpr_after, fnr_after = compute_fpr_fnr(bf, test_set_pos, test_set_neg)
+
+        results.append({
+            "Filter": name,
+            "Delete Ratio": ratio,
+            "FPR": fpr_after,
+            "FNR": fnr_after,
+            "Insert Throughput": insert_tp,
+            "Memory (bytes)": bf.mem_bytes,
+        })
+
+    return results
+
+
+membership, test_pos, test_neg = prepare_dataset(path, test_size=1000, repetition=True)
+
+n = len(membership)
+m = n * 3
+k = 4
+
+cbf = CountingBloomFilter(n, m, k)
+tdbf = TimeDecayingBloomFilter(n, m, k)
+
+delete_results = []
+delete_results += evaluate_deletion_effects("CountingBF", cbf, membership, test_pos, test_neg)
+# delete_results += evaluate_deletion_effects("TimeDecayingBF", tdbf, membership, test_pos, test_neg)
+
+df_delete = pd.DataFrame(delete_results)
+print(df_delete)
+
+
+sns.lineplot(data=df_delete, x="Delete Ratio", y="FPR", hue="Filter", marker="o")
+sns.lineplot(data=df_delete, x="Delete Ratio", y="FNR", hue="Filter", marker="o", linestyle="--")
+
+plt.title("CountingBF Deletion Effects: FPR / FNR vs Delete Ratio")
+plt.show()
+
+

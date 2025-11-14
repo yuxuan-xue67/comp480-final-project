@@ -206,3 +206,7 @@ class TimeDecayingBloomFilter(CountingBloomFilter):
     def estimate(self, key):
         """Estimate frequency count after decay."""
         return min(self.count_array[h(key)] for h in self.hashes)
+
+    # Ignore remove
+    def remove(self, key):
+        pass
