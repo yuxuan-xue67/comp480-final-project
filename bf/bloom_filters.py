@@ -1,5 +1,5 @@
 from sklearn.utils import murmurhash3_32
-import math, random, sys
+import math, random, sys, hashlib
 import pandas as pd
 from bitarray import bitarray
 import matplotlib.pyplot as plt
@@ -210,3 +210,150 @@ class TimeDecayingBloomFilter(CountingBloomFilter):
     # Ignore remove
     def remove(self, key):
         pass
+
+class CompressedBloomFilter:
+    """Compressed Bloom Filter - reduces memory through compression"""
+    def __init__(self, expected_elements, false_positive_rate=0.01, compression_factor=0.5):
+        self.expected_elements = expected_elements
+        self.fpr = false_positive_rate
+        self.compression_factor = compression_factor
+        
+        # Calculate optimal parameters
+        full_m = self._optimal_m(expected_elements, false_positive_rate)
+        self.m = int(full_m * compression_factor)  # Compressed size
+        self.k = self._optimal_k(full_m, expected_elements)
+        
+        self.bit_array = [0] * self.m
+        self.element_count = 0
+        
+    def _optimal_m(self, n, p):
+        return int(-n * math.log(p) / (math.log(2) ** 2))
+    
+    def _optimal_k(self, m, n):
+        return max(1, int((m / n) * math.log(2)))
+    
+    def _hash(self, item, seed):
+        h = hashlib.md5((str(item) + str(seed)).encode())
+        return int(h.hexdigest(), 16) % self.m
+    
+    def insert(self, item):
+        self.add(item)
+
+    def test(self, item):
+        return self.contains(item)
+
+    @property
+    def mem_bytes(self):
+        """
+        Effective memory usage in bytes.
+        We pretend we stored the compressed representation
+        of a full_m-bit filter, so mem = compressed_m / 8.
+        """
+        return self.m // 8
+    
+    def add(self, item):
+        """Add item with compression mapping"""
+        for i in range(self.k):
+            idx = self._hash(item, i)
+            self.bit_array[idx] = 1
+        self.element_count += 1
+    
+    def contains(self, item):
+        """Check if item might be in filter"""
+        for i in range(self.k):
+            idx = self._hash(item, i)
+            if self.bit_array[idx] == 0:
+                return False
+        return True
+    
+    def get_memory_usage(self):
+        """Return memory usage in bytes"""
+        return self.m // 8
+    
+    def delete(self, item):
+        """CompBF doesn't support deletion"""
+        raise NotImplementedError("Compressed Bloom Filter does not support deletion")
+
+import zlib
+from bitarray import bitarray
+import sys
+
+class RealCompressedBloomFilter(BloomFilter):
+    """
+    Real compressed Bloom filter (Mitzenmacher-style, lossless).
+
+    - Uses the same (n, m, k) parameters as your other BFs.
+    - Supports insert/test just like BloomFilter.
+    - After calling .compress(), the internal bit array is stored as
+      compressed bytes; FPR stays the same, but effective memory shrinks.
+    """
+
+    def __init__(self, n, m, k):
+        super().__init__(n, m, k)
+        self._compressed = False
+        self._compressed_bytes = None
+
+    # ---------- compression logic ----------
+
+    def compress(self):
+        """
+        Compress the internal bit array using zlib.
+        After this, bit_array is freed and only compressed bytes are kept.
+        """
+        if self._compressed:
+            return
+        if self._compressed:
+            return
+        raw_bytes = self.bit_array.tobytes()
+        self._compressed_bytes = zlib.compress(raw_bytes)
+        self._compressed_size = sys.getsizeof(self._compressed_bytes)
+        self._compressed = True
+        # # Convert bitarray -> bytes and compress
+        # raw_bytes = self.bit_array.tobytes()
+        # self._compressed_bytes = zlib.compress(raw_bytes)
+
+        # # Free original bit array to simulate memory savings
+        # self.bit_array = None
+        # self._compressed = True
+
+    def _ensure_decompressed(self):
+        """
+        Lazily decompress if we need to do insert/test after compression.
+        """
+        if not self._compressed:
+            return
+
+        raw_bytes = zlib.decompress(self._compressed_bytes)
+        ba = bitarray()
+        ba.frombytes(raw_bytes)
+
+        # Slice in case bitarray padded to full bytes
+        self.bit_array = ba[:self.m]
+
+        self._compressed = False
+        self._compressed_bytes = None
+
+    # ---------- API compatible with other filters ----------
+
+    def insert(self, key):
+        # We must be in decompressed form to modify the bits
+        self._ensure_decompressed()
+        super().insert(key)
+
+    def test(self, key):
+        # Queries require the original bit array → decompress if needed
+        self._ensure_decompressed()
+        return super().test(key)
+
+    @property
+    def mem_bytes(self):
+        # Always report compressed size if we have it,
+        # even if we've already decompressed for queries.
+        if self._compressed_size is not None:
+            return self._compressed_size
+        else:
+            return super().mem_bytes
+
+    # No deletion support
+    def remove(self, key):
+        raise NotImplementedError("Compressed Bloom Filter does not support deletion")

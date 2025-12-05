@@ -1,9 +1,10 @@
 import time
 import random
 import pandas as pd
-from bloom_filters import BloomFilter, CountingBloomFilter, ScalableBloomFilter, TimeDecayingBloomFilter
+from bloom_filters import BloomFilter, CountingBloomFilter, ScalableBloomFilter, TimeDecayingBloomFilter, CompressedBloomFilter, RealCompressedBloomFilter
 import matplotlib.pyplot as plt
 import seaborn as sns
+import math
 
 # Function for dataset preparation
 def prepare_dataset(path: str, test_size: int = 1000, seed: int = 42, repetition: bool = False):
@@ -53,12 +54,36 @@ def compute_fpr_fnr(bf, positives, negatives):
     fnr = fn / len(positives)
     return fpr, fnr
 
+def make_compressed_bf_for_ratio(n, ratio, target_fpr=0.01):
+    """
+    Choose compression_factor so that compressed size m ≈ n * ratio.
+    """
+    # full_m needed for target FPR
+    full_m = int(-n * math.log(target_fpr) / (math.log(2) ** 2))
+
+    target_m = int(n * ratio)
+    compression_factor = target_m / full_m
+    print(compression_factor)
+
+    # Clamp between (0,1]; if >1, we can't "compress" so we just use 1.0
+    compression_factor = min(1.0, max(0.01, compression_factor))
+
+    cbf = CompressedBloomFilter(
+        expected_elements=n,
+        false_positive_rate=target_fpr,
+        compression_factor=compression_factor
+    )
+    return cbf
+
 
 def evaluate_filter(name, bf, insert_set, test_set_pos, test_set_neg, allow_delete=False):
     print(f"\nEvaluating {name}...")
     
     # 1. Insertion throughput
     insert_tp, insert_time = measure_throughput(bf.insert, insert_set)
+    
+    if isinstance(bf, RealCompressedBloomFilter):
+        bf.compress()  # compress AFTER building
     
     # 2. Query throughput
     query_tp, query_time = measure_throughput(bf.test, test_set_pos + test_set_neg)
@@ -108,8 +133,13 @@ for ratio in ratios:
         ("Classic", BloomFilter(n, m, k)),
         ("Counting", CountingBloomFilter(n, m, k)),
         ("Scalable", ScalableBloomFilter(n, m, k)),
-        ("Time-Decaying", TimeDecayingBloomFilter(n, m, k))
+        ("Time-Decaying", TimeDecayingBloomFilter(n, m, k)),
+        ("Compressed", RealCompressedBloomFilter(n, m, k))
     ]
+
+    # # Compressed BF: built via FPR + compression_factor to get approx m
+    # compressed_bf = make_compressed_bf_for_ratio(n, ratio, target_fpr=0.01)
+    # filters.append(("Compressed", compressed_bf))
 
     for name, bf in filters:
         allow_delete = name == "Counting"
@@ -141,22 +171,42 @@ plt.xlabel("m/n ratio (bits per element)")
 plt.tight_layout()
 plt.show()
 
-ratio_to_plot = 3
-subset = df_tune[df_tune["m/n ratio"] == ratio_to_plot]
-
+# Query Throughput vs m/n ratio
 plt.figure(figsize=(9,6))
-sns.barplot(data=subset, x="Filter", y="FPR", palette="Blues_d")
-plt.title(f"FPR Comparison (m/n={ratio_to_plot})")
-plt.ylabel("False Positive Rate")
+sns.lineplot(data=df_tune, x="m/n ratio",y="Query Throughput (ops/s)",hue="Filter", marker="o")
+plt.title("Query Throughput vs. m/n Ratio")
+plt.ylabel("Query Throughput (ops/s)")
+plt.xlabel("m/n ratio (bits per element)")
 plt.tight_layout()
 plt.show()
 
+# Memory vs m/n ratio
 plt.figure(figsize=(9,6))
-sns.barplot(data=subset, x="Filter", y="Insert Throughput (ops/s)", palette="Greens_d")
-plt.title(f"Insertion Throughput Comparison (m/n={ratio_to_plot})")
-plt.ylabel("Insert Throughput (ops/s)")
+sns.lineplot(data=df_tune, x="m/n ratio",y="Memory (bytes)", hue="Filter",marker="o")
+plt.yscale("log")
+plt.title("Memory Usage vs. m/n Ratio")
+plt.ylabel("Memory (bytes)")
+plt.xlabel("m/n ratio (bits per element)")
 plt.tight_layout()
 plt.show()
+
+
+# ratio_to_plot = 3
+# subset = df_tune[df_tune["m/n ratio"] == ratio_to_plot]
+
+# plt.figure(figsize=(9,6))
+# sns.barplot(data=subset, x="Filter", y="FPR", palette="Blues_d")
+# plt.title(f"FPR Comparison (m/n={ratio_to_plot})")
+# plt.ylabel("False Positive Rate")
+# plt.tight_layout()
+# plt.show()
+
+# plt.figure(figsize=(9,6))
+# sns.barplot(data=subset, x="Filter", y="Insert Throughput (ops/s)", palette="Greens_d")
+# plt.title(f"Insertion Throughput Comparison (m/n={ratio_to_plot})")
+# plt.ylabel("Insert Throughput (ops/s)")
+# plt.tight_layout()
+# plt.show()
 
 plt.figure(figsize=(9,6))
 sns.scatterplot(data=df_tune, x="Memory (bytes)", y="FPR", hue="Filter", style="Filter", s=120)
