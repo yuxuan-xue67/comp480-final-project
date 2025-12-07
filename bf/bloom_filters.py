@@ -274,6 +274,8 @@ class CompressedBloomFilter:
         """CompBF doesn't support deletion"""
         raise NotImplementedError("Compressed Bloom Filter does not support deletion")
 
+
+# !!!THIS IS THE COMPRESSED BF I AM USING RIGHT NOW
 import zlib
 from bitarray import bitarray
 import sys
