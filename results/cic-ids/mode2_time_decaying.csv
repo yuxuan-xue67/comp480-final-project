@@ -1,0 +1,5 @@
+Filter,Decay Factor,Epoch Length,Insert Throughput (ops/s),Query Throughput (ops/s),FPR,FNR,Memory (bytes)
+Time-Decaying,0.7,100,14323.65,1997763.28,0.087,0.0,8567160
+Time-Decaying,0.7,500,66986.83,996390.07,0.087,0.0,8567160
+Time-Decaying,0.3,100,23170.74,1997763.28,0.0,1.0,8567160
+Time-Decaying,0.3,500,104589.37,1997287.62,0.0,1.0,8567160

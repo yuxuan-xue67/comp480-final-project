@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 
+# change this to actual path
 if not os.path.exists("graphs/cic-ids"):
     os.makedirs("graphs/cic-ids")
 
@@ -39,7 +40,6 @@ def prepare_cicids_dataset(path: str, test_size: int = 1000, seed: int = 42, rep
 
     return membership, test_set_pos, test_set_neg
 
-# Functions for evaluation metrics measurement
 def measure_throughput(func, data):
     start = time.time()
     for x in data:
@@ -232,16 +232,6 @@ plt.tight_layout()
 plt.savefig("graphs/cic-ids/insert_throughput_vs_m_n_ratio.png")
 plt.close()
 
-# Query Throughput (test) vs. m/n ratio
-plt.figure(figsize=(9,6))
-sns.lineplot(data=df_tune, x="m/n ratio", y="Query Throughput (ops/s)", hue="Filter", marker="o")
-plt.title("Query Throughput vs. m/n Ratio")
-plt.ylabel("Query Throughput (ops/s)")
-plt.xlabel("m/n ratio (bits per element)")
-plt.tight_layout()
-plt.savefig("graphs/cic-ids/query_throughput_vs_m_n_ratio.png")
-plt.close()
-
 # Memory vs m/n ratio
 plt.figure(figsize=(9,6))
 sns.lineplot(data=df_tune, x="m/n ratio", y="Memory (bytes)", hue="Filter", marker="o")
@@ -251,26 +241,6 @@ plt.ylabel("Memory (bytes)")
 plt.xlabel("m/n ratio (bits per element)")
 plt.tight_layout()
 plt.savefig("graphs/cic-ids/memory_usage_vs_m_n_ratio.png")
-plt.close()
-
-# FPR vs. FNR
-plt.figure(figsize=(9,6))
-sns.lineplot(data=df_tune, x="FPR", y="FNR", hue="Filter", marker="o")
-plt.title("FPR vs FNR Comparison")
-plt.xlabel("False Positive Rate")
-plt.ylabel("False Negative Rate")
-plt.tight_layout()
-plt.savefig("graphs/cic-ids/fpr_vs_fnr.png")
-plt.close()
-
-# FPR vs Insert Throughput
-plt.figure(figsize=(9,6))
-sns.scatterplot(data=df_tune, x="FPR", y="Insert Throughput (ops/s)", hue="Filter", style="Filter", s=120)
-plt.title("FPR vs Insert Throughput")
-plt.xlabel("False Positive Rate")
-plt.ylabel("Insert Throughput (ops/s)")
-plt.tight_layout()
-plt.savefig("graphs/cic-ids/fpr_vs_insert_throughput.png")
 plt.close()
 
 print("\n" + "="*80)
@@ -292,37 +262,6 @@ print("="*80)
 print(df_counting)
 df_counting.to_csv("graphs/cic-ids/mode2_counting_deletions.csv", index=False)
 
-# Plot Counting Filter results
-plt.figure(figsize=(8, 5))
-
-# FPR — solid line
-sns.lineplot(
-    data=df_counting,
-    x="Deletion Ratio",
-    y="FPR",
-    label="FPR",
-    marker="o",
-    linestyle="-"
-)
-
-# FNR — dashed line
-sns.lineplot(
-    data=df_counting,
-    x="Deletion Ratio",
-    y="FNR",
-    label="FNR",
-    marker="o",
-    linestyle="--"
-)
-
-plt.title("CountingBF Deletion Effects: FPR / FNR vs Delete Ratio")
-plt.ylabel("FPR / FNR")
-plt.xlabel("Delete Ratio")
-plt.legend()
-plt.tight_layout()
-plt.savefig("graphs/cic-ids/counting_deletion_impact.png")
-plt.close()
-
 # 2b. Time-Decaying Bloom Filter with different decay parameters
 print("\n--- MODE 2b: Time-Decaying Bloom Filter with Decay Parameters ---")
 decay_configs = [
@@ -340,56 +279,5 @@ print("TIME-DECAYING FILTER RESULTS")
 print("="*80)
 print(df_decay)
 df_decay.to_csv("graphs/cic-ids/mode2_time_decaying.csv", index=False)
-
-# Plot Time-Decaying Filter results
-fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-
-# FPR comparison
-df_decay['Config'] = df_decay.apply(lambda x: f"d={x['Decay Factor']}, e={x['Epoch Length']}", axis=1)
-axes[0].bar(range(len(df_decay)), df_decay['FPR'])
-axes[0].set_xlabel('Configuration')
-axes[0].set_ylabel('False Positive Rate')
-axes[0].set_title('Time-Decaying Filter: FPR by Configuration')
-axes[0].set_xticks(range(len(df_decay)))
-axes[0].set_xticklabels(df_decay['Config'], rotation=45, ha='right')
-
-# FNR comparison
-axes[1].bar(range(len(df_decay)), df_decay['FNR'])
-axes[1].set_xlabel('Configuration')
-axes[1].set_ylabel('False Negative Rate')
-axes[1].set_title('Time-Decaying Filter: FNR by Configuration')
-axes[1].set_xticks(range(len(df_decay)))
-axes[1].set_xticklabels(df_decay['Config'], rotation=45, ha='right')
-
-plt.tight_layout()
-plt.savefig("graphs/cic-ids/time_decaying_decay_impact.png")
-plt.close()
-
-# Combined comparison plot for Mode 2
-plt.figure(figsize=(12, 6))
-plt.subplot(1, 2, 1)
-plt.plot(df_counting['Deletion Ratio'], df_counting['FPR'], marker='o', label='FPR', linewidth=2)
-plt.plot(df_counting['Deletion Ratio'], df_counting['FNR'], marker='s', label='FNR', linewidth=2)
-plt.xlabel('Deletion Ratio')
-plt.ylabel('Rate')
-plt.title('Counting Filter: Impact of Deletions')
-plt.legend()
-plt.grid(True, alpha=0.3)
-
-plt.subplot(1, 2, 2)
-x_labels = [f"d={r['decay_factor']}\ne={r['epoch_length']}" for r in decay_configs]
-x_pos = range(len(df_decay))
-plt.plot(x_pos, df_decay['FPR'], marker='o', label='FPR', linewidth=2)
-plt.plot(x_pos, df_decay['FNR'], marker='s', label='FNR', linewidth=2)
-plt.xlabel('Configuration')
-plt.ylabel('Rate')
-plt.title('Time-Decaying Filter: Impact of Decay Parameters')
-plt.xticks(x_pos, x_labels, fontsize=8)
-plt.legend()
-plt.grid(True, alpha=0.3)
-
-plt.tight_layout()
-plt.savefig("graphs/cic-ids/mode2_combined_comparison.png")
-plt.close()
 
 print("EXPERIMENT COMPLETE!")

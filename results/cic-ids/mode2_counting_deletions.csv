@@ -1,0 +1,4 @@
+Filter,Deletion Ratio,Insert Throughput (ops/s),Delete Throughput (ops/s),Query Throughput (ops/s),FPR,FNR,Memory (bytes)
+Counting,10%,821993.32,423815.59,665868.23,0.067,0.092,8567160
+Counting,30%,838260.42,685885.13,1998239.16,0.033,0.267,8567160
+Counting,50%,819741.57,706207.99,1997763.28,0.008,0.517,8567160
